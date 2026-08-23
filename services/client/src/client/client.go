@@ -1,7 +1,9 @@
 package client
 
 import (
+	"bufio"
 	"net"
+	"os"
 	"time"
 
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
@@ -19,6 +21,8 @@ type ClientConfig struct {
 	ServerHost string
 	ServerPort string
 	AgencyId   string
+	InputFile  string
+	OutputFile string
 }
 
 type Client struct {
@@ -62,29 +66,58 @@ func (client *Client) Run() error {
 	const mainAction = "test-echo-server"
 	defer client.conn.Close()
 
-	for messageId := range ECHO_CLIENT_MESSAGE_AMOUNT {
+	input_file, err := os.Open(client.config.InputFile)
+	if err != nil {
+		logger.Warn("open-input-file", logger.Fail, err)
+		return err
+	}
+	
+	output_file, err := os.Create(client.config.OutputFile)
+	if err != nil {
+		logger.Warn("create-output-file", logger.Fail, err)
+		return err
+	}
+
+	defer output_file.Close()
+	defer input_file.Close()
+
+	input := bufio.NewScanner(input_file)
+	messageId := 0
+
+	for input.Scan() {
 		messageArgs := []any{"agency-id", client.config.AgencyId, "message-id", messageId}
 		logger.Info(mainAction, logger.InProgress, messageArgs...)
 
-		clientMessage := client.config.AgencyId
+		clientMessage := input.Text()
 
 		if err := safe_socket.SendAll(client.conn, []byte(clientMessage)); err != nil {
 			logger.Error("send-message", logger.Fail, messageArgs...)
 			return err
 		}
 
-		responseBuffer, err := safe_socket.RecvAll(client.conn, ECHO_CLIENT_BUFFER_SIZE)
+		responseBuffer, err := safe_socket.RecvAll(client.conn, len(clientMessage))
 		if err != nil {
 			logger.Error("recv-response", logger.Fail, messageArgs...)
 			return err
 		}
 
-		if string(responseBuffer) == clientMessage {
+		if string(responseBuffer) != clientMessage {
 			logger.Error("check-response", logger.Fail, messageArgs...)
+		}
+
+		line := string(responseBuffer) + "\n"
+		n, err := output_file.WriteString(line)
+		if (err != nil  || n != len(line)){
+			logger.Error("write-response", logger.Fail, messageArgs...)
 			return err
 		}
 
-		time.Sleep(ECHO_CLIENT_MESSAGE_DELAY_MS * time.Millisecond)
+		messageId++
+	}
+
+	if err := input.Err(); err != nil {
+		logger.Warn("read-file", logger.Fail, err)
+		return err
 	}
 	logger.Info(mainAction, logger.Success, "agency-id", client.config.AgencyId)
 
