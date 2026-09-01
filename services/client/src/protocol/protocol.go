@@ -1,31 +1,48 @@
 package protocol
 
 import (
-	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/safe_socket"
-	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/lottery"
 	"encoding/binary"
+	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/lottery"
+	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/safe_socket"
 )
 
 const BIRTHDATE_LEN = 10
 
 type servProtocol struct {
 	socket safe_socket.Socket
+	agencyId int
 }
 
-func CrearProtocolo(socket safe_socket.Socket) *servProtocol {
-	return &servProtocol{socket: socket}
+func CrearProtocolo(socket safe_socket.Socket, agencyId int) *servProtocol {
+	return &servProtocol{socket: socket, agencyId: agencyId}
 }
 
 func (p *servProtocol) SendBet(bet lottery.Bet) error {
-	payload := p.serializeBet(bet)
+	payload, err := p.serializeBet(bet)
+	if err != nil {
+		return err
+	}
 	return p.sendFramed(payload) 
 }
 
 func (p *servProtocol) sendFramed(payload []byte) error {
+	var frame []byte
+
+	// primero el agencyId
+	frame = append(frame, byte(p.agencyId))
+	// luego el largo
+	frame = binary.BigEndian.AppendUint32(frame, uint32(len(payload)))
+	// finalmente el payload
+	frame = append(frame, payload...)
+
+	err := p.socket.Send(frame)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func (p *servProtocol) serializeBet(bet lottery.Bet) []byte {
+func (p *servProtocol) serializeBet(bet lottery.Bet) ([]byte, error) {
 	var buf []byte
 
 	// se agrega al buffer 1 byte de longitud + string para nombre
@@ -37,10 +54,10 @@ func (p *servProtocol) serializeBet(bet lottery.Bet) []byte {
 	buf = append(buf, []byte(bet.LastName)...)
 
 	// se agrega al buffer BirthdateLen para la fecha (tamaño fijo para fechas)
-	buf = append(buf, BIRTHDATE_LEN)
+	buf = append(buf, []byte(bet.Birthdate)...)
 
 	buf = binary.BigEndian.AppendUint32(buf, uint32(bet.Document))
 	buf = binary.BigEndian.AppendUint32(buf, uint32(bet.Number))
 
-	return buf
+	return buf, nil
 }
