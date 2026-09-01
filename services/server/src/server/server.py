@@ -16,7 +16,6 @@ class Server:
         protocol = Protocol(client_socket)
         action = "handle-client"
         try:
-            #por ahora lee una sola apuesta pero quiero primero poder testear bien el protocolo
             logger.info(action, logger.LogResult.in_progress)
             total = 0
             while True:
@@ -29,7 +28,7 @@ class Server:
                     )
                     break
                 total += len(bets)
-                logger.info(action, logger.LogResult.success, "bets-received", total)
+            logger.info(action, logger.LogResult.success, "all-bets-received", total)
         except Exception as e:
             logger.error(
                 action, logger.LogResult.fail, "messages-amount"
