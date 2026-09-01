@@ -1,57 +1,82 @@
+from dataclasses import dataclass
+
 import safe_socket as ss
 from lottery import Bet
+
 
 FRAME_LEGNTH = 5
 BIRTHDATE_LEN = 10
 UINT8_SIZE = 1
 UINT32_SIZE = 4
 
+@dataclass
+class Frame:
+    agency_id: int
+    length: int
+
 class Protocol:
     def __init__(self, socket):
         self.socket = socket
 
-    def recv_bet(self) -> Bet:
-        agency_id, packet_length = self._read_frame()
-        bet = self._deserialize_bet(packet_length, agency_id)
+    def recv_batch(self) -> list[Bet] :
+        frame = self._read_frame()
+        batch = []
 
-        return bet
+        if self._is_last_batch(frame):
+            return batch
 
+        payload = ss.recv_all(self.socket, frame.length)
 
-    def _read_frame(self) -> tuple[int, int]:
+        batch_size = int.from_bytes(payload[:UINT32_SIZE], "big")
+        payload = payload[UINT32_SIZE:]
+        
+        for _ in range (batch_size):
+            bet, payload = self._deserialize_bet(payload, frame)
+            batch.append(bet)
+
+        return batch
+
+    def _read_frame(self) -> Frame:
         frame_bytes = ss.recv_all(self.socket, FRAME_LEGNTH)
 
         agency_id = int.from_bytes(frame_bytes[:UINT8_SIZE], "big")
         length = int.from_bytes(frame_bytes[UINT8_SIZE:], "big")
 
-        return agency_id, length
+        return Frame (
+            agency_id,
+            length,
+        )
 
-    def _deserialize_bet(self, packet_length, agency_id) -> Bet:
-        packet_bytes = ss.recv_all(self.socket, packet_length)
-        offset = 0
+    def _deserialize_bet(self, payload, frame) -> Bet:
+        fn_length = payload[0]
+        payload = payload[UINT8_SIZE:]
 
-        fn_length = int.from_bytes(packet_bytes[:UINT8_SIZE], "big")
-        offset += UINT8_SIZE
-        first_name =  packet_bytes[offset:offset + fn_length].decode()
-        offset += fn_length
+        first_name =  payload[:fn_length].decode()
+        payload = payload[fn_length:]        
 
-        ln_length = int.from_bytes(packet_bytes[offset:offset+1], "big")
-        offset += UINT8_SIZE
-        last_name =  packet_bytes[offset:offset+ln_length].decode()
-        offset += ln_length
+        ln_length = int.from_bytes(payload[:UINT8_SIZE], "big")
+        payload = payload[UINT8_SIZE:]
 
-        birthday = packet_bytes[offset:offset + BIRTHDATE_LEN].decode()
-        offset += BIRTHDATE_LEN
+        last_name =  payload[:ln_length].decode()
+        payload = payload[ln_length:]
 
-        document = int.from_bytes(packet_bytes[offset:offset + UINT32_SIZE], "big")
-        offset += UINT32_SIZE
+        birthday = payload[:BIRTHDATE_LEN].decode()
+        payload = payload[BIRTHDATE_LEN:]
 
-        number = int.from_bytes(packet_bytes[offset:offset + UINT32_SIZE], "big")
+        document = int.from_bytes(payload[:UINT32_SIZE], "big")
+        payload = payload[UINT32_SIZE:]
+
+        number = int.from_bytes(payload[:UINT32_SIZE], "big")
+        payload = payload[UINT32_SIZE:]
 
         return Bet(
-            agency_id,
+            frame.agency_id,
             first_name,
             last_name,
             document,
             birthday,
             number
-        )
+        ), payload
+
+    def _is_last_batch(self, frame) -> bool:
+        return frame.length == 0

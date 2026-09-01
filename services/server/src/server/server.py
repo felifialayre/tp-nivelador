@@ -1,6 +1,8 @@
 import socket
 import logger
 import safe_socket
+from protocol import Protocol
+from lottery import Lottery
 
 _ECHO_SERVER_MESSAGE_SIZE = 1024
 
@@ -11,27 +13,26 @@ class Server:
         self.server_port = server_port
 
     def _handle_client(self, client_socket):
+        protocol = Protocol(client_socket)
         action = "handle-client"
-        message_amount = 0
         try:
+            #por ahora lee una sola apuesta pero quiero primero poder testear bien el protocolo
             logger.info(action, logger.LogResult.in_progress)
+            total = 0
             while True:
-                client_message = safe_socket.recv_all(
-                    client_socket, _ECHO_SERVER_MESSAGE_SIZE
-                )
-                if not client_message:
+                bets = protocol.recv_batch()
+                if not bets:
                     logger.info(
                         action,
                         logger.LogResult.success,
                         "messages-amount",
-                        message_amount,
                     )
-                    return
-                message_amount += 1
-                safe_socket.send_all(client_socket, client_message)
+                    break
+                total += len(bets)
+                logger.info(action, logger.LogResult.success, "bets-received", total)
         except Exception as e:
             logger.error(
-                action, logger.LogResult.fail, "messages-amount", message_amount
+                action, logger.LogResult.fail, "messages-amount"
             )
             raise e
 

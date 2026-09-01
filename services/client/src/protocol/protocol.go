@@ -2,30 +2,47 @@ package protocol
 
 import (
 	"encoding/binary"
+	
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/lottery"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/safe_socket"
 )
 
 const BIRTHDATE_LEN = 10
 
-type servProtocol struct {
-	socket safe_socket.Socket
+type ClientProtocol struct {
+	socket   safe_socket.Socket
 	agencyId int
 }
 
-func CrearProtocolo(socket safe_socket.Socket, agencyId int) *servProtocol {
-	return &servProtocol{socket: socket, agencyId: agencyId}
+func CrearProtocolo(socket safe_socket.Socket, agencyId int) *ClientProtocol {
+	return &ClientProtocol{socket: socket, agencyId: agencyId}
 }
 
-func (p *servProtocol) SendBet(bet lottery.Bet) error {
+func (p *ClientProtocol) SendBet(bet lottery.Bet) error {
 	payload, err := p.serializeBet(bet)
 	if err != nil {
 		return err
 	}
-	return p.sendFramed(payload) 
+	return p.sendFramed(payload)
 }
 
-func (p *servProtocol) sendFramed(payload []byte) error {
+func (p *ClientProtocol) SendBatch(bets []lottery.Bet) error {
+	var payload []byte 
+	// agregamos al principio del batch la cantidad de bets dentro del batch
+	payload = binary.BigEndian.AppendUint32(payload, uint32(len(bets)))
+
+	for _, bet := range bets {
+		serialized_bet, err := p.serializeBet(bet)
+		if err != nil {
+			return err
+		}
+		payload = append(payload, serialized_bet...)
+	}
+
+	return p.sendFramed(payload)
+}
+
+func (p *ClientProtocol) sendFramed(payload []byte) error {
 	var frame []byte
 
 	// primero el agencyId
@@ -42,7 +59,7 @@ func (p *servProtocol) sendFramed(payload []byte) error {
 	return nil
 }
 
-func (p *servProtocol) serializeBet(bet lottery.Bet) ([]byte, error) {
+func (p *ClientProtocol) serializeBet(bet lottery.Bet) ([]byte, error) {
 	var buf []byte
 
 	// se agrega al buffer 1 byte de longitud + string para nombre
@@ -60,4 +77,17 @@ func (p *servProtocol) serializeBet(bet lottery.Bet) ([]byte, error) {
 	buf = binary.BigEndian.AppendUint32(buf, uint32(bet.Number))
 
 	return buf, nil
+}
+
+func (p *ClientProtocol) SendEnd() error{
+	var buf []byte
+	return p.sendFramed(buf)
+}
+
+func (p *ClientProtocol) Close() error {
+	return p.socket.Close()
+}
+
+func (p *ClientProtocol) RecvWinners(data []byte) ([]lottery.Bet, error) {
+	return nil, nil
 }

@@ -2,20 +2,21 @@ package client
 
 import (
 	"bufio"
+	"fmt"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
+	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/lottery"
+	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/protocol"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/safe_socket"
 )
 
 const CONNECTION_ATTEMPTS_MAX = 3
 const CONNECTION_ATTEMPS_DELAY_MS = 200
-
-const ECHO_CLIENT_BUFFER_SIZE = 512
-const ECHO_CLIENT_MESSAGE_AMOUNT = 3
-const ECHO_CLIENT_MESSAGE_DELAY_MS = 1000
 
 type ClientConfig struct {
 	ServerHost string
@@ -23,21 +24,30 @@ type ClientConfig struct {
 	AgencyId   string
 	InputFile  string
 	OutputFile string
+	BatchSize  int
 }
 
 type Client struct {
-	conn   net.Conn
-	config ClientConfig
+	protocol protocol.ClientProtocol
+	config   ClientConfig
 }
 
 func NewClient(config ClientConfig) (*Client, error) {
+	const action = "creating-client"
 	conn, err := connectToServer(config.ServerHost, config.ServerPort)
 	if err != nil {
 		logger.Warn("connect-to-server", logger.Fail)
 		return nil, err
 	}
+	socket := safe_socket.CrearSafeSocket(conn)
 
-	client := &Client{conn: conn, config: config}
+	agencyId, err := strconv.Atoi(config.AgencyId)
+	if err != nil {
+		logger.Warn(action, logger.Fail, err)
+		return nil, err
+	}
+
+	client := &Client{protocol: *protocol.CrearProtocolo(socket, agencyId), config: config}
 	return client, nil
 }
 
@@ -63,15 +73,15 @@ func connectToServer(host, port string) (net.Conn, error) {
 }
 
 func (client *Client) Run() error {
-	const mainAction = "test-echo-server"
-	defer client.conn.Close()
+	const mainAction = "send-bets"
+	defer client.protocol.Close()
 
 	input_file, err := os.Open(client.config.InputFile)
 	if err != nil {
 		logger.Warn("open-input-file", logger.Fail, err)
 		return err
 	}
-	
+
 	output_file, err := os.Create(client.config.OutputFile)
 	if err != nil {
 		logger.Warn("create-output-file", logger.Fail, err)
@@ -82,37 +92,25 @@ func (client *Client) Run() error {
 	defer input_file.Close()
 
 	input := bufio.NewScanner(input_file)
-	messageId := 0
 
-	for input.Scan() {
-		messageArgs := []any{"agency-id", client.config.AgencyId, "message-id", messageId}
-		logger.Info(mainAction, logger.InProgress, messageArgs...)
+	for {
+		batch, err := client.readBatch(input)
 
-		clientMessage := input.Text()
-
-		if err := safe_socket.SendAll(client.conn, []byte(clientMessage)); err != nil {
-			logger.Error("send-message", logger.Fail, messageArgs...)
-			return err
-		}
-
-		responseBuffer, err := safe_socket.RecvAll(client.conn, len(clientMessage))
 		if err != nil {
-			logger.Error("recv-response", logger.Fail, messageArgs...)
+			logger.Warn(mainAction, logger.Fail, err)
 			return err
 		}
-
-		if string(responseBuffer) != clientMessage {
-			logger.Error("check-response", logger.Fail, messageArgs...)
+		if len(batch) == 0 {
+			if err := client.protocol.SendEnd(); err != nil {
+				logger.Error("send-end", logger.Fail)
+				return err
+			}
+			break
 		}
-
-		line := string(responseBuffer) + "\n"
-		n, err := output_file.WriteString(line)
-		if (err != nil  || n != len(line)){
-			logger.Error("write-response", logger.Fail, messageArgs...)
+		if err := client.protocol.SendBatch(batch); err != nil {
+			logger.Error("send-batch", logger.Fail)
 			return err
 		}
-
-		messageId++
 	}
 
 	if err := input.Err(); err != nil {
@@ -122,4 +120,47 @@ func (client *Client) Run() error {
 	logger.Info(mainAction, logger.Success, "agency-id", client.config.AgencyId)
 
 	return nil
+}
+
+func (client *Client) readBatch(input *bufio.Scanner) ([]lottery.Bet, error) {
+	const action = "read-batch"
+	b_size := client.config.BatchSize
+	batch := make([]lottery.Bet, 0, b_size)
+
+	for i := 0; i < b_size && input.Scan(); i++ {
+		bet, err := parseBet(input.Text())
+		if err != nil {
+			logger.Warn(action, logger.Fail, err)
+			return nil, err
+		}
+
+		batch = append(batch, bet)
+	}
+
+	return batch, nil
+}
+
+func parseBet(line string) (lottery.Bet, error) {
+	fields := strings.Split(line, ",")
+	if len(fields) != 5 {
+		return lottery.Bet{}, fmt.Errorf("line with %d fields, 5 were expected: %q", len(fields), line)
+	}
+
+	document, err := strconv.Atoi(fields[2])
+	if err != nil {
+		return lottery.Bet{}, fmt.Errorf("invalid document: %w", err)
+	}
+
+	number, err := strconv.Atoi(fields[4])
+	if err != nil {
+		return lottery.Bet{}, fmt.Errorf("invalid number: %w", err)
+	}
+
+	return lottery.Bet{
+		FirstName: fields[0],
+		LastName:  fields[1],
+		Document:  document,
+		Birthdate: fields[3],
+		Number:    number,
+	}, nil
 }
