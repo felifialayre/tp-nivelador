@@ -73,7 +73,7 @@ func connectToServer(host, port string) (net.Conn, error) {
 }
 
 func (client *Client) Run() error {
-	const mainAction = "send-bets"
+	const mainAction = "get-winners"
 	defer client.protocol.Close()
 
 	input_file, err := os.Open(client.config.InputFile)
@@ -82,13 +82,6 @@ func (client *Client) Run() error {
 		return err
 	}
 
-	output_file, err := os.Create(client.config.OutputFile)
-	if err != nil {
-		logger.Warn("create-output-file", logger.Fail, err)
-		return err
-	}
-
-	defer output_file.Close()
 	defer input_file.Close()
 
 	input := bufio.NewScanner(input_file)
@@ -118,6 +111,39 @@ func (client *Client) Run() error {
 		return err
 	}
 	logger.Info(mainAction, logger.Success, "agency-id", client.config.AgencyId)
+
+	winners, err := client.protocol.RecvWinners()
+	if err != nil {
+		logger.Warn("getting-winners", logger.Fail, err)
+		return err
+	}
+
+	err = client.writeWinners(winners)
+
+	return nil
+}
+
+func (client *Client) writeWinners(winners []lottery.Bet) error {
+	output_file, err := os.Create(client.config.OutputFile)
+	if err != nil {
+		logger.Warn("create-output-file", logger.Fail, err)
+		return err
+	}
+	defer output_file.Close()
+
+	for _, bet := range winners {
+		line := fmt.Sprintf("%s,%s,%d,%s,%d\n",
+				bet.FirstName, bet.LastName, bet.Document, bet.Birthdate, bet.Number)
+
+		n, err := output_file.WriteString(line)
+		if err != nil {
+			logger.Error("write-winner", logger.Fail, err)
+			return err
+		}
+		if n != len(line) {
+				return fmt.Errorf("short write: %d de %d bytes", n, len(line))
+		}
+	}
 
 	return nil
 }

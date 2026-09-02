@@ -8,6 +8,8 @@ import (
 )
 
 const BIRTHDATE_LEN = 10
+const UINT32_SIZE = 4
+const UINT8_SIZE = 1
 
 type ClientProtocol struct {
 	socket   safe_socket.Socket
@@ -88,6 +90,65 @@ func (p *ClientProtocol) Close() error {
 	return p.socket.Close()
 }
 
-func (p *ClientProtocol) RecvWinners(data []byte) ([]lottery.Bet, error) {
-	return nil, nil
+func (p *ClientProtocol) RecvWinners() ([]lottery.Bet, error) {
+	length, err := p.readFrame()
+	if err != nil {
+		return nil, err
+	}
+
+	payload, err := p.socket.Recv(length)
+	if err != nil {
+		return nil, err
+	}
+
+	count := binary.BigEndian.Uint32(payload[:UINT32_SIZE])
+	payload = payload[UINT32_SIZE:]
+
+	winners := make([]lottery.Bet, 0, count)	
+	for i := uint32(0); i < count; i++ {
+		var bet lottery.Bet
+		bet, payload = p.deserializeBet(payload)
+		winners = append(winners, bet)
+	}
+
+	return winners, nil
+}
+
+func (p *ClientProtocol) readFrame() (int, error) {
+	length_bytes, err := p.socket.Recv(UINT32_SIZE)
+	if err != nil {
+		return 0, err
+	}
+	length := binary.BigEndian.Uint32(length_bytes)
+	return int(length), nil
+}
+
+func (p *ClientProtocol) deserializeBet(payload []byte) (lottery.Bet, []byte) {
+	fnLen := int(payload[0])
+	payload = payload[UINT8_SIZE:]
+	firstName := string(payload[:fnLen])
+	payload = payload[fnLen:]
+
+	lnLen := int(payload[0])
+	payload = payload[UINT8_SIZE:]
+	lastName := string(payload[:lnLen])
+	payload = payload[lnLen:]
+
+	birthdate := string(payload[:BIRTHDATE_LEN])
+	payload = payload[BIRTHDATE_LEN:]
+
+	document := int(binary.BigEndian.Uint32(payload[:UINT32_SIZE]))
+	payload = payload[UINT32_SIZE:]
+
+	number := int(binary.BigEndian.Uint32(payload[:UINT32_SIZE]))
+	payload = payload[UINT32_SIZE:]
+
+	bet := lottery.Bet{
+		FirstName: firstName,
+		LastName:  lastName,
+		Document:  document,
+		Birthdate: birthdate,
+		Number:    number,
+	}
+	return bet, payload
 }
