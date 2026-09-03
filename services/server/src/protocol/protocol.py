@@ -3,27 +3,29 @@ from dataclasses import dataclass
 import safe_socket as ss
 from lottery import Bet
 
-
 FRAME_LEGNTH = 5
 BIRTHDATE_LEN = 10
 UINT8_SIZE = 1
 UINT32_SIZE = 4
+HELLO_SIZE = UINT8_SIZE
+NOT_A_ID = -1
 
 @dataclass
 class Frame:
-    agency_id: int
+    is_end: int
     length: int
 
 class Protocol:
     def __init__(self, socket):
         self.socket = socket
+        self.agency_id = NOT_A_ID
 
-    def recv_batch(self) -> tuple[list[Bet], int]:
+    def recv_batch(self) -> list[Bet]:
         frame = self._read_frame()
         batch = []
 
         if self._is_last_batch(frame):
-            return batch, frame.agency_id
+            return batch
 
         payload = ss.recv_all(self.socket, frame.length)
 
@@ -31,23 +33,33 @@ class Protocol:
         payload = payload[UINT32_SIZE:]
         
         for _ in range (batch_size):
-            bet, payload = self._deserialize_bet(payload, frame)
+            bet, payload = self._deserialize_bet(payload)
             batch.append(bet)
 
-        return batch, frame.agency_id
+        return batch
+
+    def recv_hello(self) -> int:
+        try: 
+            a_id_bytes = ss.recv_all(self.socket, HELLO_SIZE)
+            self.agency_id = int.from_bytes(a_id_bytes, "big")
+
+            return self.agency_id
+        except Exception:
+            return self.agency_id
+            
 
     def _read_frame(self) -> Frame:
         frame_bytes = ss.recv_all(self.socket, FRAME_LEGNTH)
 
-        agency_id = int.from_bytes(frame_bytes[:UINT8_SIZE], "big")
+        is_end = int.from_bytes(frame_bytes[:UINT8_SIZE], "big")
         length = int.from_bytes(frame_bytes[UINT8_SIZE:], "big")
 
         return Frame (
-            agency_id,
+            is_end,
             length,
         )
 
-    def _deserialize_bet(self, payload, frame) -> Bet:
+    def _deserialize_bet(self, payload) -> Bet:
         fn_length = payload[0]
         payload = payload[UINT8_SIZE:]
 
@@ -70,7 +82,7 @@ class Protocol:
         payload = payload[UINT32_SIZE:]
 
         return Bet(
-            frame.agency_id,
+            self.agency_id,
             first_name,
             last_name,
             document,
@@ -119,5 +131,5 @@ class Protocol:
         return b_bet
 
 
-    def _is_last_batch(self, frame) -> bool:
-        return frame.length == 0
+    def _is_last_batch(self, frame: Frame) -> bool:
+        return frame.is_end == 1

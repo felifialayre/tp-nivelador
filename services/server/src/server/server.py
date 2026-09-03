@@ -2,16 +2,14 @@ import socket
 
 import logger
 from lottery import Bet, Lottery
-from protocol import Protocol
-
-STORAGE_PATH = "/tmp/bets.csv"
+from protocol import Protocol, NOT_A_ID
 
 
 class Server:
-    def __init__(self, server_host: str, server_port: int) -> None:
+    def __init__(self, server_host: str, server_port: int, storage_path: str) -> None:
         self.server_host = server_host
         self.server_port = server_port
-        self.lottery = Lottery(STORAGE_PATH)
+        self.lottery = Lottery(storage_path)
 
     def _handle_client(self, client_socket):
         protocol = Protocol(client_socket)
@@ -19,9 +17,13 @@ class Server:
         try:
             #modularizar
             logger.info(action, logger.LogResult.in_progress)
+            agency_id = protocol.recv_hello()
+            if agency_id == NOT_A_ID:
+                return
+
             total = 0
             while True:
-                bets, agency_id= protocol.recv_batch()
+                bets = protocol.recv_batch()
                 if not bets:
                     logger.info(
                         action,

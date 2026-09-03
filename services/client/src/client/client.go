@@ -76,6 +76,12 @@ func (client *Client) Run() error {
 	const mainAction = "get-winners"
 	defer client.protocol.Close()
 
+	err := client.protocol.SendHello()
+	if err != nil {
+		logger.Warn("send-hello", logger.Fail, err)
+		return err
+	}
+	
 	input_file, err := os.Open(client.config.InputFile)
 	if err != nil {
 		logger.Warn("open-input-file", logger.Fail, err)
@@ -94,7 +100,8 @@ func (client *Client) Run() error {
 			return err
 		}
 		if len(batch) == 0 {
-			if err := client.protocol.SendEnd(); err != nil {
+			err := client.protocol.SendEnd();
+			if err != nil {
 				logger.Error("send-end", logger.Fail)
 				return err
 			}
@@ -114,7 +121,7 @@ func (client *Client) Run() error {
 
 	winners, err := client.protocol.RecvWinners()
 	if err != nil {
-		logger.Warn("getting-winners", logger.Fail, err)
+		logger.Warn("get-winners", logger.Fail, err)
 		return err
 	}
 
@@ -141,7 +148,7 @@ func (client *Client) writeWinners(winners []lottery.Bet) error {
 			return err
 		}
 		if n != len(line) {
-				return fmt.Errorf("short write: %d de %d bytes", n, len(line))
+			return fmt.Errorf("short write: %d de %d bytes", n, len(line))
 		}
 	}
 

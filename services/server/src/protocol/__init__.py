@@ -1,1 +1,1 @@
-from .protocol import Protocol
+from .protocol import Protocol, NOT_A_ID

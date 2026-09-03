@@ -11,6 +11,9 @@ const BIRTHDATE_LEN = 10
 const UINT32_SIZE = 4
 const UINT8_SIZE = 1
 
+const BATCH = 0
+const END = 1
+
 type ClientProtocol struct {
 	socket   safe_socket.Socket
 	agencyId int
@@ -18,14 +21,6 @@ type ClientProtocol struct {
 
 func CrearProtocolo(socket safe_socket.Socket, agencyId int) *ClientProtocol {
 	return &ClientProtocol{socket: socket, agencyId: agencyId}
-}
-
-func (p *ClientProtocol) SendBet(bet lottery.Bet) error {
-	payload, err := p.serializeBet(bet)
-	if err != nil {
-		return err
-	}
-	return p.sendFramed(payload)
 }
 
 func (p *ClientProtocol) SendBatch(bets []lottery.Bet) error {
@@ -41,14 +36,21 @@ func (p *ClientProtocol) SendBatch(bets []lottery.Bet) error {
 		payload = append(payload, serialized_bet...)
 	}
 
-	return p.sendFramed(payload)
+	return p.sendFramed(payload, BATCH)
 }
 
-func (p *ClientProtocol) sendFramed(payload []byte) error {
+func (p *ClientProtocol) SendHello() error {
 	var frame []byte
 
-	// primero el agencyId
 	frame = append(frame, byte(p.agencyId))
+	return p.socket.Send(frame)
+}
+
+func (p *ClientProtocol) sendFramed(payload []byte, is_end int8) error {
+	var frame []byte
+
+	// primero el flag de fin
+	frame = append(frame, byte(is_end))
 	// luego el largo
 	frame = binary.BigEndian.AppendUint32(frame, uint32(len(payload)))
 	// finalmente el payload
@@ -83,7 +85,7 @@ func (p *ClientProtocol) serializeBet(bet lottery.Bet) ([]byte, error) {
 
 func (p *ClientProtocol) SendEnd() error{
 	var buf []byte
-	return p.sendFramed(buf)
+	return p.sendFramed(buf, END)
 }
 
 func (p *ClientProtocol) Close() error {
