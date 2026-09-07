@@ -17,6 +17,4 @@ def send_all(socket: socket.socket, bytes):
     sent = 0
     while sent < len(bytes):
         delta_n = socket.send(bytes[sent:])
-        if not delta_n:
-            raise ConnectionError("conexión cerrada")
         sent += delta_n
