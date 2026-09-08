@@ -1,2 +1,5 @@
 *__pycache__*
 failed_test.log
+input/
+output/
+.vscode/
