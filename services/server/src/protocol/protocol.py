@@ -1,18 +1,24 @@
 from dataclasses import dataclass
+from enum import IntEnum
 
 import safe_socket as ss
 from lottery import Bet
 
 FRAME_LEGNTH = 5
 BIRTHDATE_LEN = 10
+
 UINT8_SIZE = 1
 UINT32_SIZE = 4
-HELLO_SIZE = UINT8_SIZE
 NOT_A_ID = -1
+
+HELLO_SIZE = UINT8_SIZE
+
+Opcode = IntEnum('Opcode', ['BATCH', 'END', 'ACK', 'WINNERS', 'ERROR'], start=0)
+
 
 @dataclass
 class Frame:
-    is_end: int
+    opcode: int
     length: int
 
 class Protocol:
@@ -24,9 +30,13 @@ class Protocol:
         frame = self._read_frame()
         batch = []
 
+
         if self._is_last_batch(frame):
             return batch
 
+        if frame.opcode != Opcode.BATCH:
+            raise ValueError("Opcode inesperado")
+            
         payload = ss.recv_all(self.socket, frame.length)
 
         batch_size = int.from_bytes(payload[:UINT32_SIZE], "big")
@@ -51,11 +61,11 @@ class Protocol:
     def _read_frame(self) -> Frame:
         frame_bytes = ss.recv_all(self.socket, FRAME_LEGNTH)
 
-        is_end = int.from_bytes(frame_bytes[:UINT8_SIZE], "big")
+        opcode = Opcode.from_bytes(frame_bytes[:UINT8_SIZE], "big")
         length = int.from_bytes(frame_bytes[UINT8_SIZE:], "big")
 
         return Frame (
-            is_end,
+            opcode,
             length,
         )
 
@@ -99,11 +109,13 @@ class Protocol:
             serialized = self._serialize_bet(winner)
             payload += serialized
 
-        self._send_framed(payload)
+        self._send_framed(payload, Opcode.WINNERS)
 
-    def _send_framed(self, payload):
+    def _send_framed(self, payload, opcode) -> None:
         packet = b""
 
+        # agregamos el opcode del mensaje
+        packet += opcode.to_bytes(UINT8_SIZE, "big")
         # agregamos longitud total del paquete y payload
         packet += len(payload).to_bytes(UINT32_SIZE, "big")
         packet += payload
@@ -130,6 +142,13 @@ class Protocol:
 
         return b_bet
 
+    def send_ack(self) -> None:
+        payload = b""
+        self._send_framed(payload, Opcode.ACK)
+
+    def send_end(self) -> None:
+        payload = b""
+        self._send_framed(payload, Opcode.ERROR)
 
     def _is_last_batch(self, frame: Frame) -> bool:
-        return frame.is_end == 1
+        return frame.opcode == Opcode.END

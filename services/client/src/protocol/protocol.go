@@ -2,7 +2,8 @@ package protocol
 
 import (
 	"encoding/binary"
-	
+	"fmt"
+
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/lottery"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/safe_socket"
 )
@@ -10,13 +11,26 @@ import (
 const BIRTHDATE_LEN = 10
 const UINT32_SIZE = 4
 const UINT8_SIZE = 1
+const FRAME_SIZE = 5
 
-const BATCH = 0
-const END = 1
+type Opcode byte
+
+const (
+	OpBatch Opcode = iota
+	OpEnd
+	OpACK
+	OpWinners
+	OpError
+)
 
 type ClientProtocol struct {
 	socket   safe_socket.Socket
 	agencyId int
+}
+
+type Frame struct {
+	opcode Opcode
+	length int
 }
 
 func CrearProtocolo(socket safe_socket.Socket, agencyId int) *ClientProtocol {
@@ -36,7 +50,7 @@ func (p *ClientProtocol) SendBatch(bets []lottery.Bet) error {
 		payload = append(payload, serialized_bet...)
 	}
 
-	return p.sendFramed(payload, BATCH)
+	return p.sendFramed(payload, OpBatch)
 }
 
 func (p *ClientProtocol) SendHello() error {
@@ -46,11 +60,11 @@ func (p *ClientProtocol) SendHello() error {
 	return p.socket.Send(frame)
 }
 
-func (p *ClientProtocol) sendFramed(payload []byte, is_end int8) error {
+func (p *ClientProtocol) sendFramed(payload []byte, opcode Opcode) error {
 	var frame []byte
 
 	// primero el flag de fin
-	frame = append(frame, byte(is_end))
+	frame = append(frame, byte(opcode))
 	// luego el largo
 	frame = binary.BigEndian.AppendUint32(frame, uint32(len(payload)))
 	// finalmente el payload
@@ -85,7 +99,7 @@ func (p *ClientProtocol) serializeBet(bet lottery.Bet) ([]byte, error) {
 
 func (p *ClientProtocol) SendEnd() error{
 	var buf []byte
-	return p.sendFramed(buf, END)
+	return p.sendFramed(buf, OpEnd)
 }
 
 func (p *ClientProtocol) Close() error {
@@ -93,12 +107,12 @@ func (p *ClientProtocol) Close() error {
 }
 
 func (p *ClientProtocol) RecvWinners() ([]lottery.Bet, error) {
-	length, err := p.readFrame()
+	frame, err := p.readFrame()
 	if err != nil {
 		return nil, err
 	}
 
-	payload, err := p.socket.Recv(length)
+	payload, err := p.socket.Recv(frame.length)
 	if err != nil {
 		return nil, err
 	}
@@ -116,13 +130,16 @@ func (p *ClientProtocol) RecvWinners() ([]lottery.Bet, error) {
 	return winners, nil
 }
 
-func (p *ClientProtocol) readFrame() (int, error) {
-	length_bytes, err := p.socket.Recv(UINT32_SIZE)
+func (p *ClientProtocol) readFrame() (Frame, error) {
+	frame_bytes, err := p.socket.Recv(FRAME_SIZE)
 	if err != nil {
-		return 0, err
+		return Frame{}, err
 	}
-	length := binary.BigEndian.Uint32(length_bytes)
-	return int(length), nil
+	opcode := Opcode(frame_bytes[0])
+	frame_bytes = frame_bytes[UINT8_SIZE:]
+	length := int(binary.BigEndian.Uint32(frame_bytes[:UINT32_SIZE]))
+
+	return Frame{opcode, length}, nil
 }
 
 func (p *ClientProtocol) deserializeBet(payload []byte) (lottery.Bet, []byte) {
@@ -153,4 +170,13 @@ func (p *ClientProtocol) deserializeBet(payload []byte) (lottery.Bet, []byte) {
 		Number:    number,
 	}
 	return bet, payload
+}
+
+func (p *ClientProtocol) RecvACK() (Opcode, error){
+	frame, err := p.readFrame()
+	if err != nil {
+		return OpEnd, err
+	}
+	if frame.opcode != OpACK { return OpEnd, fmt.Errorf("ack inesperado: se recibió opcode %d", frame.opcode) }
+	return frame.opcode, nil
 }

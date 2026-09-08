@@ -111,6 +111,7 @@ func (client *Client) Run() error {
 			logger.Error("send-batch", logger.Fail)
 			return err
 		}
+		if _, err := client.protocol.RecvACK(); err != nil { return err }
 	}
 
 	if err := input.Err(); err != nil {

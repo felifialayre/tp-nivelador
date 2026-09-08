@@ -30,7 +30,12 @@ class ClientHandler:
                         total
                     )
                     break
-                self._safe_lottery.store_bets(bets)
+                try:
+                    self._safe_lottery.store_bets(bets)
+                except Exception:
+                    self._protocol.send_error() 
+                    raise # cuando implemente la parte 8 me fijo bien
+                self._protocol.send_ack()
                 total += len(bets)
             logger.info(action, logger.LogResult.success, "all-bets-received", total)
         except Exception as e:
