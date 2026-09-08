@@ -1,0 +1,1 @@
+from .safe_lottery import SafeLottery

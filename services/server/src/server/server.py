@@ -1,50 +1,18 @@
+import multiprocessing
 import socket
 
 import logger
-from lottery import Bet, Lottery
-from protocol import Protocol, NOT_A_ID
+from client_handler import ClientHandler
+from safe_lottery import SafeLottery
 
 
 class Server:
-    def __init__(self, server_host: str, server_port: int, storage_path: str) -> None:
+    def __init__(self, server_host: str, server_port: int, storage_path: str, agency_quorum_min: int) -> None:
         self.server_host = server_host
         self.server_port = server_port
-        self.lottery = Lottery(storage_path)
-
-    def _handle_client(self, client_socket):
-        protocol = Protocol(client_socket)
-        action = "handle-client"
-        try:
-            #modularizar
-            logger.info(action, logger.LogResult.in_progress)
-            agency_id = protocol.recv_hello()
-            if agency_id == NOT_A_ID:
-                return
-
-            total = 0
-            while True:
-                bets = protocol.recv_batch()
-                if not bets:
-                    logger.info(
-                        action,
-                        logger.LogResult.success,
-                        "messages-amount",
-                        total
-                    )
-                    break
-                self.lottery.store_bets(bets)
-                total += len(bets)
-            logger.info(action, logger.LogResult.success, "all-bets-received", total)
-        except Exception as e:
-            logger.error(
-                action, logger.LogResult.fail
-            )
-            raise e
-
-        winners = self._find_winners(agency_id)
-        protocol.send_winners(winners)
-        
-        client_socket.close()
+        self._safe_lottery = SafeLottery(storage_path)
+        self._barrier = multiprocessing.Barrier(agency_quorum_min)
+        self._handlers = []
 
     def run(self):
         action = "accept-connection"
@@ -60,12 +28,12 @@ class Server:
                     raise e
                 logger.info(action, logger.LogResult.success)
 
-                self._handle_client(client_socket)
+                new_handler = ClientHandler(self._safe_lottery, client_socket, self._barrier)
+                handler_process = multiprocessing.Process(target=new_handler.handle_client)
+                self._handlers.append(handler_process)
+                handler_process.start()
 
-    def _find_winners(self, agency_id) -> list[Bet]:
-        winners = []
-        for bet in self.lottery.load_bets():
-            if self.lottery.has_won(bet) and bet.agency_id == agency_id:
-                winners.append(bet)
-                
-        return winners
+                client_socket.close()
+                # esta línea es necesaria porque python forkea el proceso así que se 
+                # creó una copia de los fd (cierro solamente la copia q tiene el server)
+

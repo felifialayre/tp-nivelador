@@ -1,1 +1,1 @@
-from .protocol import Protocol, NOT_A_ID
+from .protocol import NOT_A_ID, Protocol  # noqa: F401
