@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"context"
 
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/lottery"
@@ -72,7 +73,23 @@ func connectToServer(host, port string) (net.Conn, error) {
 	return conn, err
 }
 
-func (client *Client) Run() error {
+func (client *Client) Run(ctx context.Context) error {
+    ctx, cancel := context.WithCancel(ctx)
+    defer cancel()
+    go func() {
+        <-ctx.Done()
+        client.protocol.Close()
+    }()
+
+    err := client.run()
+    if err != nil && ctx.Err() != nil {
+        logger.Info("client-run", logger.Success, "reason", "sigterm")
+        return nil
+    }
+    return err
+}
+
+func (client *Client) run() error {
 	const mainAction = "get-winners"
 	defer client.protocol.Close()
 

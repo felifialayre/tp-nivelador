@@ -1,3 +1,6 @@
+import signal
+from threading import BrokenBarrierError
+
 import logger
 from protocol import NOT_A_ID, Protocol
 from safe_lottery import SafeLottery
@@ -11,9 +14,9 @@ class ClientHandler:
         self._socket = socket
 
     def handle_client(self):
+        signal.signal(signal.SIGTERM, self._handle_sigterm)
         action = "handle-client"
         try:
-            #modularizar
             logger.info(action, logger.LogResult.in_progress)
             agency_id = self._protocol.recv_hello()
             if agency_id == NOT_A_ID:
@@ -21,32 +24,31 @@ class ClientHandler:
 
             total = 0
             while True:
-                bets = self._protocol.recv_batch()
-                if not bets:
-                    logger.info(
-                        action,
-                        logger.LogResult.success,
-                        "messages-amount",
-                        total
-                    )
+                bets_received = self._handle_batch()
+                if bets_received == 0:
                     break
-                try:
-                    self._safe_lottery.store_bets(bets)
-                except Exception:
-                    self._protocol.send_error() 
-                    raise # cuando implemente la parte 8 me fijo bien
-                self._protocol.send_ack()
-                total += len(bets)
+                total += bets_received
             logger.info(action, logger.LogResult.success, "all-bets-received", total)
+
+            self._barrier.wait()
+
+            winners = self._safe_lottery.winners_for(agency_id)
+            self._protocol.send_winners(winners)
+        except (BrokenBarrierError, OSError):
+            logger.info(action, logger.LogResult.success, "graceful-shutdown", "sigterm-received")
         except Exception as e:
-            logger.error(
-                action, logger.LogResult.fail
-            )
+            logger.error(action, logger.LogResult.fail)
             raise e
+        finally:
+            self._socket.close()
 
-        self._barrier.wait()    
+    def _handle_batch(self):
+        bets = self._protocol.recv_batch()
+        if not bets:
+            return 0
+        self._safe_lottery.store_bets(bets)
+        self._protocol.send_ack()
+        return len(bets)
 
-        winners = self._safe_lottery.winners_for(agency_id)
-        self._protocol.send_winners(winners)
-
+    def _handle_sigterm(self, _signum, _frame):
         self._socket.close()
