@@ -2,13 +2,13 @@ package client
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-	"context"
 
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/logger"
 	"github.com/7574-sistemas-distribuidos/tp-nivelador/src/lottery"
@@ -44,7 +44,7 @@ func NewClient(config ClientConfig) (*Client, error) {
 
 	agencyId, err := strconv.Atoi(config.AgencyId)
 	if err != nil {
-		logger.Warn(action, logger.Fail, err)
+		logger.Warn(action, logger.Fail, "err", err)
 		return nil, err
 	}
 
@@ -74,34 +74,42 @@ func connectToServer(host, port string) (net.Conn, error) {
 }
 
 func (client *Client) Run(ctx context.Context) error {
-    ctx, cancel := context.WithCancel(ctx)
-    defer cancel()
-    go func() {
-        <-ctx.Done()
-        client.protocol.Close()
-    }()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		<-ctx.Done()
+		client.protocol.Close()
+	}()
 
-    err := client.run()
-    if err != nil && ctx.Err() != nil {
-        logger.Info("client-run", logger.Success, "reason", "sigterm")
-        return nil
-    }
-    return err
+	err := client.run()
+	if err != nil && ctx.Err() != nil {
+		logger.Info("client-run", logger.Success, "reason", "sigterm")
+		return nil
+	}
+	return err
 }
 
 func (client *Client) run() error {
-	const mainAction = "get-winners"
 	defer client.protocol.Close()
 
-	err := client.protocol.SendHello()
-	if err != nil {
-		logger.Warn("send-hello", logger.Fail, err)
+	if err := client.protocol.SendHello(); err != nil {
+		logger.Warn("send-hello", logger.Fail, "err", err)
 		return err
 	}
-	
+
+	if err := client.sendBets(); err != nil {
+		return err
+	}
+
+	return client.getWinners()
+}
+
+func (client *Client) sendBets() error {
+	const mainAction = "get-winners"
+
 	input_file, err := os.Open(client.config.InputFile)
 	if err != nil {
-		logger.Warn("open-input-file", logger.Fail, err)
+		logger.Warn("open-input-file", logger.Fail, "err", err)
 		return err
 	}
 
@@ -113,56 +121,60 @@ func (client *Client) run() error {
 		batch, err := client.readBatch(input)
 
 		if err != nil {
-			logger.Warn(mainAction, logger.Fail, err)
+			logger.Warn(mainAction, logger.Fail, "err", err)
 			return err
 		}
 		if len(batch) == 0 {
-			err := client.protocol.SendEnd();
+			err := client.protocol.SendEnd()
 			if err != nil {
-				logger.Error("send-end", logger.Fail)
+				logger.Error("send-end", logger.Fail, "err", err)
 				return err
 			}
 			break
 		}
 		if err := client.protocol.SendBatch(batch); err != nil {
-			logger.Error("send-batch", logger.Fail)
+			logger.Error("send-batch", logger.Fail, "err", err)
 			return err
 		}
-		if _, err := client.protocol.RecvACK(); err != nil { return err }
+		if _, err := client.protocol.RecvACK(); err != nil {
+			return err
+		}
 	}
 
 	if err := input.Err(); err != nil {
-		logger.Warn("read-file", logger.Fail, err)
+		logger.Warn("read-file", logger.Fail, "err", err)
 		return err
 	}
 	logger.Info(mainAction, logger.Success, "agency-id", client.config.AgencyId)
 
+	return nil
+}
+
+func (client *Client) getWinners() error {
 	winners, err := client.protocol.RecvWinners()
 	if err != nil {
-		logger.Warn("get-winners", logger.Fail, err)
+		logger.Warn("get-winners", logger.Fail, "err", err)
 		return err
 	}
 
-	err = client.writeWinners(winners)
-
-	return nil
+	return client.writeWinners(winners)
 }
 
 func (client *Client) writeWinners(winners []lottery.Bet) error {
 	output_file, err := os.Create(client.config.OutputFile)
 	if err != nil {
-		logger.Warn("create-output-file", logger.Fail, err)
+		logger.Warn("create-output-file", logger.Fail, "err", err)
 		return err
 	}
 	defer output_file.Close()
 
 	for _, bet := range winners {
 		line := fmt.Sprintf("%s,%s,%d,%s,%d\n",
-				bet.FirstName, bet.LastName, bet.Document, bet.Birthdate, bet.Number)
+			bet.FirstName, bet.LastName, bet.Document, bet.Birthdate, bet.Number)
 
 		n, err := output_file.WriteString(line)
 		if err != nil {
-			logger.Error("write-winner", logger.Fail, err)
+			logger.Error("write-winner", logger.Fail, "err", err)
 			return err
 		}
 		if n != len(line) {
@@ -181,7 +193,7 @@ func (client *Client) readBatch(input *bufio.Scanner) ([]lottery.Bet, error) {
 	for i := 0; i < b_size && input.Scan(); i++ {
 		bet, err := parseBet(input.Text())
 		if err != nil {
-			logger.Warn(action, logger.Fail, err)
+			logger.Warn(action, logger.Fail, "err", err)
 			return nil, err
 		}
 
@@ -209,9 +221,9 @@ func parseBet(line string) (lottery.Bet, error) {
 
 	return lottery.Bet{
 		FirstName: fields[0],
-		LastName:  fields[1],
-		Document:  document,
+		LastName: fields[1],
+		Document: document,
 		Birthdate: fields[3],
-		Number:    number,
+		Number: number,
 	}, nil
 }
