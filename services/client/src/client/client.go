@@ -76,6 +76,7 @@ func connectToServer(host, port string) (net.Conn, error) {
 func (client *Client) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// bloqueo una rutina para recibir sigterm y desbloquear
 	go func() {
 		<-ctx.Done()
 		client.protocol.Close()
@@ -83,6 +84,7 @@ func (client *Client) Run(ctx context.Context) error {
 
 	err := client.run()
 	if err != nil && ctx.Err() != nil {
+		// si ctx.Err() != nil ==> salida por sigterm (limpia)
 		logger.Info("client-run", logger.Success, "reason", "sigterm")
 		return nil
 	}
