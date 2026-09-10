@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 from enum import IntEnum
 
+import logger
 import safe_socket as ss
 from lottery import Bet
 
-FRAME_LEGNTH = 5
+FRAME_LENGTH = 5
 BIRTHDATE_LEN = 10
 
 UINT8_SIZE = 1
@@ -59,12 +60,13 @@ class Protocol:
             return self.agency_id
         except ValueError:
             raise
-        except Exception:
+        except Exception as e:
+            logger.error("recv-hello", logger.LogResult.fail, "err", e)
             return self.agency_id
             
 
     def _read_frame(self) -> Frame:
-        frame_bytes = ss.recv_all(self.socket, FRAME_LEGNTH)
+        frame_bytes = ss.recv_all(self.socket, FRAME_LENGTH)
 
         opcode = Opcode.from_bytes(frame_bytes[:UINT8_SIZE], "big")
         length = int.from_bytes(frame_bytes[UINT8_SIZE:], "big")
