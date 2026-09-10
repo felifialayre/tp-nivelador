@@ -55,10 +55,8 @@ class Server:
 
         for handle_process in self._handlers:
             handle_process.join(SHUTDOWN_TIMEOUT_SECONDS)
-            if handle_process.is_alive():
-                handle_process.kill()
-                handle_process.join()
-            handle_process.close()
+            if not handle_process.is_alive():
+                handle_process.close()
 
 
     def _handle_sigterm(self, _signum, _frame):

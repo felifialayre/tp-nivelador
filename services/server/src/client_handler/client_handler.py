@@ -37,8 +37,7 @@ class ClientHandler:
         except (BrokenBarrierError, OSError):
             logger.info(action, logger.LogResult.success, "graceful-shutdown", "sigterm-received")
         except Exception as e:
-            logger.error(action, logger.LogResult.fail)
-            raise e
+            logger.error(action, logger.LogResult.fail, "err", e)
         finally:
             self._socket.close()
 

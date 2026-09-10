@@ -20,7 +20,7 @@ const (
 	OpEnd
 	OpACK
 	OpWinners
-	OpError
+	OpHello
 )
 
 type ClientProtocol struct {
@@ -54,10 +54,10 @@ func (p *ClientProtocol) SendBatch(bets []lottery.Bet) error {
 }
 
 func (p *ClientProtocol) SendHello() error {
-	var frame []byte
+	var payload []byte
 
-	frame = append(frame, byte(p.agencyId))
-	return p.socket.Send(frame)
+	payload = append(payload, byte(p.agencyId))
+	return p.sendFramed(payload, OpHello)
 }
 
 func (p *ClientProtocol) sendFramed(payload []byte, opcode Opcode) error {

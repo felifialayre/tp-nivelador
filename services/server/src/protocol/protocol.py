@@ -11,9 +11,7 @@ UINT8_SIZE = 1
 UINT32_SIZE = 4
 NOT_A_ID = -1
 
-HELLO_SIZE = UINT8_SIZE
-
-Opcode = IntEnum('Opcode', ['BATCH', 'END', 'ACK', 'WINNERS', 'ERROR'], start=0)
+Opcode = IntEnum('Opcode', ['BATCH', 'END', 'ACK', 'WINNERS', 'HELLO'], start=0)
 
 
 @dataclass
@@ -50,10 +48,17 @@ class Protocol:
 
     def recv_hello(self) -> int:
         try: 
-            a_id_bytes = ss.recv_all(self.socket, HELLO_SIZE)
+            frame = self._read_frame()
+
+            if frame.opcode != Opcode.HELLO:
+                raise ValueError("Opcode inesperado")
+
+            a_id_bytes = ss.recv_all(self.socket, frame.length)
             self.agency_id = int.from_bytes(a_id_bytes, "big")
 
             return self.agency_id
+        except ValueError:
+            raise
         except Exception:
             return self.agency_id
             
@@ -145,10 +150,6 @@ class Protocol:
     def send_ack(self) -> None:
         payload = b""
         self._send_framed(payload, Opcode.ACK)
-
-    def send_end(self) -> None:
-        payload = b""
-        self._send_framed(payload, Opcode.ERROR)
 
     def _is_last_batch(self, frame: Frame) -> bool:
         return frame.opcode == Opcode.END
